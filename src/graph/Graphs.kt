@@ -2,17 +2,27 @@ package graph
 
 import java.lang.RuntimeException
 
-class Vertex
-
 abstract class BidirectionalGraph {
-    abstract fun hasVertex(x: Vertex): Boolean
-    abstract fun getEdge(x: Vertex, y: Vertex): Double?
-    abstract fun getNeighbors(x: Vertex): List<Vertex>
-    abstract fun addVertex(x: Vertex)
-    abstract fun removeVertex(x: Vertex): Boolean
-    abstract fun addEdge(x: Vertex, y: Vertex, weight: Double)
-    abstract fun setEdge(x: Vertex, y: Vertex, weight: Double)
-    abstract fun removeEdge(x: Vertex, y: Vertex): Boolean
+    abstract fun hasVertex(x: Int): Boolean
+    abstract fun getEdge(x: Int, y: Int): Double?
+    abstract fun getNeighbors(x: Int): List<Int>
+    abstract fun addVertex(x: Int)
+    abstract fun removeVertex(x: Int): Boolean
+    abstract fun addEdge(x: Int, y: Int, weight: Double)
+    abstract fun setEdge(x: Int, y: Int, weight: Double)
+    abstract fun removeEdge(x: Int, y: Int): Boolean
+}
+
+class InfiniteList<T>: ArrayList<T?>() {
+    override fun get(index: Int): T? {
+        if (index >= size) return null
+        return super.get(index)
+    }
+
+    override fun set(index: Int, element: T?): T? {
+        while (index >= size) add(null)
+        return super.set(index, element)
+    }
 }
 
 
@@ -36,79 +46,95 @@ abstract class BidirectionalGraph {
  * */
 
 class AdjacencyListBidirectionalGraph: BidirectionalGraph() {
-    private val adjacencyList: MutableMap<Vertex, MutableMap<Vertex, Double>> = HashMap()
+    private val adjacencyList: InfiniteList<MutableList<Pair<Int, Double>>> = InfiniteList()
 
-    override fun hasVertex(x: Vertex): Boolean = x in adjacencyList
+    override fun hasVertex(x: Int): Boolean = adjacencyList[x] !== null
 
-    override fun getEdge(x: Vertex, y: Vertex): Double? =
-        (adjacencyList[x] ?: throw RuntimeException("$x is not present in the graph"))[y]
+    override fun getEdge(x: Int, y: Int): Double? =
+        (adjacencyList[x] ?: throw RuntimeException("$x is not present in the graph")).find { it.first == y }?.second
 
-    override fun getNeighbors(x: Vertex): List<Vertex> = (adjacencyList[x] ?: throw RuntimeException("$x is not present in the graph")).map { it.key }
+    override fun getNeighbors(x: Int): List<Int> = (adjacencyList[x] ?: throw RuntimeException("$x is not present in the graph")).map { it.first }
 
-    override fun addVertex(x: Vertex) {
-        if (x in adjacencyList) throw RuntimeException("$x is already present in the graph")
+    override fun addVertex(x: Int) {
+        if (hasVertex(x)) throw RuntimeException("$x is already present in the graph")
 
-        adjacencyList[x] = HashMap()
+        adjacencyList[x] = ArrayList()
     }
 
-    override fun removeVertex(x: Vertex): Boolean {
+    override fun removeVertex(x: Int): Boolean {
         adjacencyList.forEach { node ->
-            node.value.remove(x)
+            if (node !== null) node.removeIf { it.first == x }
         }
-        return adjacencyList.remove(x) !== null
+        return if (!hasVertex(x)) false else { adjacencyList[x] = null; true }
     }
 
-    override fun addEdge(x: Vertex, y: Vertex, weight: Double) {
-        if (x !in adjacencyList) throw RuntimeException("$x is not present in the graph")
-        if (y !in adjacencyList) throw RuntimeException("$y is not present in the graph")
+    override fun addEdge(x: Int, y: Int, weight: Double) {
+        if (!hasVertex(x)) throw RuntimeException("$x is not present in the graph")
+        if (!hasVertex(y)) throw RuntimeException("$y is not present in the graph")
 
-        adjacencyList[x]!![y] = weight
+        if (getEdge(x, y) !== null) throw RuntimeException("Edge $x->$y already exists")
+
+        adjacencyList[x]!!.add(Pair(y, weight))
     }
 
-    override fun setEdge(x: Vertex, y: Vertex, weight: Double) {
-        if (x !in adjacencyList) throw RuntimeException("$x is not present in the graph")
-        if (y !in adjacencyList) throw RuntimeException("$y is not present in the graph")
+    override fun setEdge(x: Int, y: Int, weight: Double) {
+        if (!hasVertex(x)) throw RuntimeException("$x is not present in the graph")
+        if (!hasVertex(y)) throw RuntimeException("$y is not present in the graph")
 
-        if (adjacencyList[x]!!.remove(y) === null) throw RuntimeException("Edge $x->$y does not exist")
-        adjacencyList[x]!![y] = weight
+        if (!adjacencyList[x]!!.remove(adjacencyList[x]!!.find { it.first == y })) throw RuntimeException("Edge $x->$y does not exist")
+        adjacencyList[x]!!.add(Pair(y, weight))
     }
 
-    override fun removeEdge(x: Vertex, y: Vertex): Boolean {
-        if (x !in adjacencyList) throw RuntimeException("$x is not present in the graph")
-        if (y !in adjacencyList) throw RuntimeException("$y is not present in the graph")
+    override fun removeEdge(x: Int, y: Int): Boolean {
+        if (hasVertex(x)) throw RuntimeException("$x is not present in the graph")
+        if (hasVertex(y)) throw RuntimeException("$y is not present in the graph")
 
-        return adjacencyList[x]!!.remove(y) !== null
+        return adjacencyList[x]!!.remove(adjacencyList[x]!!.find { it.first == y })
+    }
+
+    override fun toString(): String {
+        val result = StringBuilder()
+        for (i in 0..(adjacencyList.size-1)) {
+            val node = adjacencyList[i]
+            if (node !== null) {
+                result.append("$i\n")
+                node.forEach { result.append(" ---${it.second}--->${it.first}\n") }
+            }
+        }
+        return result.toString()
     }
 }
 
 
 class AdjacencyMatrixBidirectionalGraph: BidirectionalGraph() {
-    private val adjacencyMatrix: MutableMap<Vertex, MutableMap<Vertex, Double?>> = HashMap()
+    private val adjacencyMatrix: InfiniteList<InfiniteList<Double>> = InfiniteList()
 
-    override fun hasVertex(x: Vertex): Boolean = x in adjacencyMatrix
+    override fun hasVertex(x: Int): Boolean = adjacencyMatrix[x] !== null
 
-    override fun getEdge(x: Vertex, y: Vertex): Double? =
+    override fun getEdge(x: Int, y: Int): Double? =
         (adjacencyMatrix[x] ?: throw RuntimeException("$x is not present in the graph"))[y]
 
-    override fun getNeighbors(x: Vertex): List<Vertex> = (adjacencyMatrix[x] ?: throw RuntimeException("$x is not present in the graph")).filter { it.value !== null }.map { it.key }
-
-    override fun addVertex(x: Vertex) {
+    override fun getNeighbors(x: Int): List<Int> {
         TODO("not implemented")
     }
 
-    override fun removeVertex(x: Vertex): Boolean {
+    override fun addVertex(x: Int) {
         TODO("not implemented")
     }
 
-    override fun addEdge(x: Vertex, y: Vertex, weight: Double) {
+    override fun removeVertex(x: Int): Boolean {
         TODO("not implemented")
     }
 
-    override fun setEdge(x: Vertex, y: Vertex, weight: Double) {
+    override fun addEdge(x: Int, y: Int, weight: Double) {
         TODO("not implemented")
     }
 
-    override fun removeEdge(x: Vertex, y: Vertex): Boolean {
+    override fun setEdge(x: Int, y: Int, weight: Double) {
+        TODO("not implemented")
+    }
+
+    override fun removeEdge(x: Int, y: Int): Boolean {
         TODO("not implemented")
     }
 
