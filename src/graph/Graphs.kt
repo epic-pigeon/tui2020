@@ -28,8 +28,8 @@ abstract class BidirectionalGraph {
     abstract fun getNeighbors(x: Int): List<Int>
     abstract fun addVertex(x: Int)
     abstract fun removeVertex(x: Int): Boolean
-    abstract fun addEdge(x: Int, y: Int, weight: Double)
-    abstract fun setEdge(x: Int, y: Int, weight: Double)
+    abstract fun addEdge(x: Int, y: Int, value: Double)
+    abstract fun setEdge(x: Int, y: Int, value: Double)
     abstract fun removeEdge(x: Int, y: Int): Boolean
     abstract fun clear()
 
@@ -173,20 +173,20 @@ class AdjacencyListBidirectionalGraph: BidirectionalGraph() {
         return if (!hasVertex(x)) false else { adjacencyList[x] = null; true }
     }
 
-    override fun addEdge(x: Int, y: Int, weight: Double) {
+    override fun addEdge(x: Int, y: Int, value: Double) {
         checkHasVertex(x)
         checkHasVertex(y)
 
         if (getEdge(x, y) !== null) errorEdgeExists(x, y)
 
-        adjacencyList[x]!!.add(MutablePair(y, weight))
+        adjacencyList[x]!!.add(MutablePair(y, value))
     }
 
-    override fun setEdge(x: Int, y: Int, weight: Double) {
+    override fun setEdge(x: Int, y: Int, value: Double) {
         checkHasVertex(x)
         checkHasVertex(y)
 
-        (adjacencyList[x]!!.find { it.first == y } ?: errorEdgeDoesNotExist(x, y)).second = weight
+        (adjacencyList[x]!!.find { it.first == y } ?: errorEdgeDoesNotExist(x, y)).second = value
     }
 
     override fun removeEdge(x: Int, y: Int): Boolean {
@@ -261,18 +261,18 @@ class AdjacencyMatrixBidirectionalGraph: BidirectionalGraph() {
         return if (hasVertex(x)) { adjacencyMatrix[x] = null; true } else false
     }
 
-    override fun addEdge(x: Int, y: Int, weight: Double) {
+    override fun addEdge(x: Int, y: Int, value: Double) {
         checkHasVertex(x)
         checkHasVertex(y)
         if (adjacencyMatrix[x]!![y] !== null) errorEdgeExists(x, y)
-        adjacencyMatrix[x]!![y] = weight
+        adjacencyMatrix[x]!![y] = value
     }
 
-    override fun setEdge(x: Int, y: Int, weight: Double) {
+    override fun setEdge(x: Int, y: Int, value: Double) {
         checkHasVertex(x)
         checkHasVertex(y)
         if (adjacencyMatrix[x]!![y] === null) errorEdgeDoesNotExist(x, y)
-        adjacencyMatrix[x]!![y] = weight
+        adjacencyMatrix[x]!![y] = value
     }
 
     override fun removeEdge(x: Int, y: Int): Boolean {
@@ -326,7 +326,7 @@ fun createGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayL
  * Returns (pathLength, path) if a path was found, null otherwise
  * */
 
-fun minPath(graph: BidirectionalGraph, x: Int, y: Int): Pair<Double, List<Int>>? {
+fun minPath(graph: BidirectionalGraph, x: Int, y: Int, getLength: (Int, Int) -> Double = { x, y -> graph.getEdge(x, y)!! }): Pair<Double, List<Int>>? {
     if (!graph.hasVertex(x)) throw RuntimeException("The graph doesn't have a vertex $x")
     if (!graph.hasVertex(y)) throw RuntimeException("The graph doesn't have a vertex $y")
     if (x == y) return Pair(0.0, ArrayList())
@@ -355,7 +355,7 @@ fun minPath(graph: BidirectionalGraph, x: Int, y: Int): Pair<Double, List<Int>>?
 
         graph.getNeighbors(a).forEach {
             if (!vertexData[it]!!.second) {
-                val newDistance = vertexData[a]!!.first!! + graph.getEdge(a, it)!!
+                val newDistance = vertexData[a]!!.first!! + getLength(a, it)
                 if (vertexData[it]!!.first == null || vertexData[it]!!.first!! > newDistance) {
                     vertexData[it]!!.first = newDistance
                     val newRoute = ArrayList<Int>()
