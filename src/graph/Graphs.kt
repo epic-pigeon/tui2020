@@ -21,7 +21,7 @@ private data class MutableTriple<A, B, C>(
     override fun toString(): String = "($first, $second, $third)"
 }
 
-abstract class BidirectionalGraph {
+abstract class DirectionalGraph {
     abstract fun hasVertex(x: Int): Boolean
     abstract fun getEdge(x: Int, y: Int): Double?
     abstract fun getVertices(): List<Int>
@@ -43,11 +43,21 @@ abstract class BidirectionalGraph {
     override fun toString(): String {
         val result = StringBuilder()
         val vertices = getVertices()
-        for (i in 0..(vertices.size-1)) {
+        for (i in vertices.indices) {
             result.append("$i\n")
             getNeighbors(i).forEach { result.append(" ---${getEdge(i, it)}--->$it\n") }
         }
         return result.toString()
+    }
+
+    fun addBidirectionalEdge(x: Int, y: Int, value: Double) {
+        addEdge(x, y, value)
+        addEdge(y, x, value)
+    }
+
+    fun setBidirectionalEdge(x: Int, y: Int, value: Double) {
+        setEdge(x, y, value)
+        setEdge(y, x, value)
     }
 
     fun serialize(): ByteArray {
@@ -77,9 +87,9 @@ abstract class BidirectionalGraph {
     }
 }
 
-inline fun <reified T: BidirectionalGraph>deserialize(data: ByteArray): T = deserialize(T::class.java.newInstance(), data) as T
+inline fun <reified T: DirectionalGraph>deserialize(data: ByteArray): T = deserialize(T::class.java.newInstance(), data) as T
 
-fun deserialize(graph: BidirectionalGraph, data: ByteArray): BidirectionalGraph {
+fun deserialize(graph: DirectionalGraph, data: ByteArray): DirectionalGraph {
     graph.clear()
 
     val vertices = ArrayList<Int>()
@@ -92,7 +102,7 @@ fun deserialize(graph: BidirectionalGraph, data: ByteArray): BidirectionalGraph 
     if (inputStream.readByte().toChar() != 'r') throw RuntimeException("Invalid file format: 'r' expected")
 
     val version = inputStream.readByte()
-    if (version != BidirectionalGraph.VERSION) throw RuntimeException("Wrong version $version (${BidirectionalGraph.VERSION} expected)")
+    if (version != DirectionalGraph.VERSION) throw RuntimeException("Wrong version $version (${DirectionalGraph.VERSION} expected)")
 
     val verticesCount = inputStream.readInt()
 
@@ -144,7 +154,7 @@ class InfiniteList<T>: ArrayList<T?>() {
  *
  * */
 
-class AdjacencyListBidirectionalGraph: BidirectionalGraph() {
+class AdjacencyListDirectionalGraph: DirectionalGraph() {
     private val adjacencyList: InfiniteList<MutableList<MutablePair<Int, Double>>> = InfiniteList()
 
     override fun hasVertex(x: Int): Boolean = adjacencyList[x] !== null
@@ -221,7 +231,7 @@ class AdjacencyListBidirectionalGraph: BidirectionalGraph() {
  *
  * */
 
-class AdjacencyMatrixBidirectionalGraph: BidirectionalGraph() {
+class AdjacencyMatrixDirectionalGraph: DirectionalGraph() {
     private val adjacencyMatrix: InfiniteList<InfiniteList<Double>> = InfiniteList()
 
     override fun hasVertex(x: Int): Boolean = adjacencyMatrix[x] !== null
@@ -286,7 +296,7 @@ class AdjacencyMatrixBidirectionalGraph: BidirectionalGraph() {
     }
 }
 
-private fun <T: BidirectionalGraph>initGraph(graph: T, vertexCount: Int, edges: List<Triple<Int, Int, Double>>): T {
+private fun <T: DirectionalGraph>initGraph(graph: T, vertexCount: Int, edges: List<Triple<Int, Int, Double>>): T {
     for (i in 0..(vertexCount-1)) graph.addVertex(i)
 
     edges.forEach { graph.addEdge(it.first, it.second, it.third) }
@@ -294,7 +304,7 @@ private fun <T: BidirectionalGraph>initGraph(graph: T, vertexCount: Int, edges: 
     return graph
 }
 
-private fun <T: BidirectionalGraph>initGraph(graph: T, vertices: List<Int>, edges: List<Triple<Int, Int, Double>>): T {
+private fun <T: DirectionalGraph>initGraph(graph: T, vertices: List<Int>, edges: List<Triple<Int, Int, Double>>): T {
     vertices.forEach { graph.addVertex(it) }
 
     edges.forEach { graph.addEdge(it.first, it.second, it.third) }
@@ -302,11 +312,11 @@ private fun <T: BidirectionalGraph>initGraph(graph: T, vertices: List<Int>, edge
     return graph
 }
 
-fun createAdjacencyListGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()): AdjacencyListBidirectionalGraph =
-        initGraph(AdjacencyListBidirectionalGraph(), vertexCount, edges)
+fun createAdjacencyListGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()): AdjacencyListDirectionalGraph =
+        initGraph(AdjacencyListDirectionalGraph(), vertexCount, edges)
 
-fun createAdjacencyMatrixGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()): AdjacencyMatrixBidirectionalGraph =
-        initGraph(AdjacencyMatrixBidirectionalGraph(), vertexCount, edges)
+fun createAdjacencyMatrixGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()): AdjacencyMatrixDirectionalGraph =
+        initGraph(AdjacencyMatrixDirectionalGraph(), vertexCount, edges)
 
 /**
  * Creates a graph using an *intelligent* algorithm to determine the most efficient graph possible
@@ -317,7 +327,7 @@ fun createAdjacencyMatrixGraph(vertexCount: Int, edges: List<Triple<Int, Int, Do
  * Thus if either vertex count is smaller than 500 or the amount of edges is close to V^2, then we use the adjacency matrix graph.
  * */
 
-fun createGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()): BidirectionalGraph =
+fun createGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()): DirectionalGraph =
         if (vertexCount < 500 || edges.size >= vertexCount * (vertexCount - 100)) createAdjacencyMatrixGraph(vertexCount, edges) else createAdjacencyListGraph(vertexCount, edges)
 
 /**
@@ -326,7 +336,7 @@ fun createGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayL
  * Returns (pathLength, path) if a path was found, null otherwise
  * */
 
-fun minPath(graph: BidirectionalGraph, x: Int, y: Int, getLength: (Int, Int) -> Double = { x, y -> graph.getEdge(x, y)!! }): Pair<Double, List<Int>>? {
+fun minPath(graph: DirectionalGraph, x: Int, y: Int, getLength: (Int, Int) -> Double = { x, y -> graph.getEdge(x, y)!! }): Pair<Double, List<Int>>? {
     if (!graph.hasVertex(x)) throw RuntimeException("The graph doesn't have a vertex $x")
     if (!graph.hasVertex(y)) throw RuntimeException("The graph doesn't have a vertex $y")
     if (x == y) return Pair(0.0, ArrayList())

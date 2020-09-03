@@ -1,9 +1,10 @@
 package traffic
 
-import graph.BidirectionalGraph
+import graph.DirectionalGraph
 import graph.InfiniteList
 import util.EventEmitter
 import java.io.PrintStream
+import java.util.*
 import kotlin.math.abs
 import kotlin.system.measureNanoTime
 
@@ -26,7 +27,7 @@ data class Car(val averageSpeed: Double, val offroadQuality: Double, val label: 
 
 data class Road(val quality: Double, val name: String?)
 
-class TrafficSimulation(val map: BidirectionalGraph, val trafficLights: InfiniteList<TrafficLight>, val roads: MutableList<Triple<Int, Int, Road>>, val maxTPS: Double = 0.0): EventEmitter<Double>() {
+class TrafficSimulation(val map: DirectionalGraph, val trafficLights: InfiniteList<TrafficLight>, val roads: MutableList<Triple<Int, Int, Road>>, val maxTPS: Double = 0.0): EventEmitter<Double>() {
     private val thread = Thread {
         var delay = 0.0
         while (true) {
@@ -64,14 +65,19 @@ class TrafficSimulation(val map: BidirectionalGraph, val trafficLights: Infinite
         thread.stop()
     }
 
-    val cars: MutableList<Car> = ArrayList()
+    val cars: MutableList<Car> = Collections.synchronizedList(ArrayList())
     var cycle: Int = 0
         private set
 
     private fun update(delta: Double) {
         emit("update", delta)
         cycle++
-        cars.forEach {
+        for (i in cars.indices) {
+            if (i >= cars.size) {
+                System.err.println("Warning: concurrent modification detected")
+                break
+            }
+            val it = cars[i]
             if (!it.finished) {
                 val progress =
                     it.roadProgress + delta * it.averageSpeed * getRoad(it.currentRoadFrom, it.currentRoadTo)!!.quality / map.getEdge(it.currentRoadFrom, it.currentRoadTo)!!
@@ -96,6 +102,7 @@ class TrafficSimulation(val map: BidirectionalGraph, val trafficLights: Infinite
                 } else it.roadProgress = progress
             }
         }
+
         cars.removeIf { it.finished }
 
         trafficLights.forEach { if (it !== null) {
@@ -119,7 +126,8 @@ class TrafficSimulation(val map: BidirectionalGraph, val trafficLights: Infinite
 
     fun dumpCars(stream: PrintStream) {
         cars.forEachIndexed { i, it ->
-            stream.println("Car #$i ${ if (it.label !== null) "'${it.label}' " else "" }${it.currentRoadFrom}----${(it.roadProgress * 100).toInt()}%--->${it.currentRoadTo}")
+            stream.println("Car #$i ${ if (it.label !== null) "'${it.label}' " else "" }${it.currentRoadFrom}----${(it.roadProgress * 100).toInt()}%--->${it.currentRoadTo} " +
+                    "(speed: average: ${it.averageSpeed.format(2)}, current: ${it.averageSpeed.times(it.offroadQuality).times(getRoad(it.currentRoadFrom, it.currentRoadTo)!!.quality).format(2)})")
         }
     }
 

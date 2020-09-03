@@ -4,11 +4,11 @@ import kotlin.math.floor
 import kotlin.test.asserter
 
 fun main() {
-    testGraph(AdjacencyListBidirectionalGraph(), 100)
-    testGraph(AdjacencyMatrixBidirectionalGraph(), 100)
+    testGraph(AdjacencyListDirectionalGraph(), 100)
+    testGraph(AdjacencyMatrixDirectionalGraph(), 100)
 }
 
-fun testGraph(graph: BidirectionalGraph, vertextCount: Int) {
+fun testGraph(graph: DirectionalGraph, vertextCount: Int) {
     graph.clear()
     val edges = ArrayList<Triple<Int, Int, Double>>()
 
