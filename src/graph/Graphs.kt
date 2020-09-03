@@ -1,7 +1,10 @@
 package graph
 
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.lang.RuntimeException
-import kotlin.reflect.jvm.isAccessible
 
 private data class MutablePair<A, B>(
     var first: A,
@@ -29,7 +32,8 @@ abstract class BidirectionalGraph {
     abstract fun setEdge(x: Int, y: Int, weight: Double)
     abstract fun removeEdge(x: Int, y: Int): Boolean
     abstract fun clear()
-    
+
+
     protected fun checkHasVertex(x: Int): Unit = if (!hasVertex(x)) errorVertexDoesNotExist(x) else {}
     protected fun errorVertexExists(x: Int): Nothing = throw RuntimeException("Vertex $x already exists")
     protected fun errorVertexDoesNotExist(x: Int): Nothing = throw RuntimeException("Vertex $x does not exist")
@@ -45,6 +49,66 @@ abstract class BidirectionalGraph {
         }
         return result.toString()
     }
+
+    fun serialize(): ByteArray {
+        val result = ByteArrayOutputStream()
+        val outputStream = DataOutputStream(result)
+        outputStream.writeByte('k'.toInt())
+        outputStream.writeByte('a'.toInt())
+        outputStream.writeByte('r'.toInt())
+        outputStream.writeByte(VERSION.toInt())
+        val vertices = getVertices()
+        outputStream.writeInt(vertices.size)
+        vertices.forEach { x ->
+            outputStream.writeInt(x)
+            val neighbors = getNeighbors(x)
+            outputStream.writeInt(neighbors.size)
+            neighbors.forEach {
+                outputStream.writeInt(it)
+                outputStream.writeDouble(getEdge(x, it)!!)
+            }
+        }
+        outputStream.flush()
+        return result.toByteArray()
+    }
+
+    companion object {
+        const val VERSION: Byte = 0
+    }
+}
+
+inline fun <reified T: BidirectionalGraph>deserialize(data: ByteArray): T = deserialize(T::class.java.newInstance(), data) as T
+
+fun deserialize(graph: BidirectionalGraph, data: ByteArray): BidirectionalGraph {
+    graph.clear()
+
+    val vertices = ArrayList<Int>()
+    val edges = ArrayList<Triple<Int, Int, Double>>()
+
+    val inputStream = DataInputStream(ByteArrayInputStream(data))
+
+    if (inputStream.readByte().toChar() != 'k') throw RuntimeException("Invalid file format: 'k' expected")
+    if (inputStream.readByte().toChar() != 'a') throw RuntimeException("Invalid file format: 'a' expected")
+    if (inputStream.readByte().toChar() != 'r') throw RuntimeException("Invalid file format: 'r' expected")
+
+    val version = inputStream.readByte()
+    if (version != BidirectionalGraph.VERSION) throw RuntimeException("Wrong version $version (${BidirectionalGraph.VERSION} expected)")
+
+    val verticesCount = inputStream.readInt()
+
+    for (i in 0..(verticesCount-1)) {
+        val vertex = inputStream.readInt()
+        vertices.add(vertex)
+        val edgeCount = inputStream.readInt()
+        for (j in 0..(edgeCount-1)) {
+            val y = inputStream.readInt()
+            val weight = inputStream.readDouble()
+            edges.add(Triple(vertex, y, weight))
+        }
+    }
+
+    initGraph(graph, vertices, edges)
+    return graph
 }
 
 class InfiniteList<T>: ArrayList<T?>() {
@@ -70,6 +134,7 @@ class InfiniteList<T>: ArrayList<T?>() {
  *
  * hasVertex: O(1)
  * getEdge: O(V)
+ * getVertices: O(V)
  * getNeighbors: O(1)
  * addVertex: O(1)
  * removeVertex: O(E)
@@ -146,6 +211,7 @@ class AdjacencyListBidirectionalGraph: BidirectionalGraph() {
  *
  * hasVertex: O(1)
  * getEdge: O(1)
+ * getVertices: O(V)
  * getNeighbors: O(V)
  * addVertex: O(1)
  * removeVertex: O(V)
@@ -222,6 +288,14 @@ class AdjacencyMatrixBidirectionalGraph: BidirectionalGraph() {
 
 private fun <T: BidirectionalGraph>initGraph(graph: T, vertexCount: Int, edges: List<Triple<Int, Int, Double>>): T {
     for (i in 0..(vertexCount-1)) graph.addVertex(i)
+
+    edges.forEach { graph.addEdge(it.first, it.second, it.third) }
+
+    return graph
+}
+
+private fun <T: BidirectionalGraph>initGraph(graph: T, vertices: List<Int>, edges: List<Triple<Int, Int, Double>>): T {
+    vertices.forEach { graph.addVertex(it) }
 
     edges.forEach { graph.addEdge(it.first, it.second, it.third) }
 
