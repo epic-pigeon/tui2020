@@ -5,6 +5,7 @@ import java.lang.RuntimeException
 abstract class BidirectionalGraph {
     abstract fun hasVertex(x: Int): Boolean
     abstract fun getEdge(x: Int, y: Int): Double?
+    abstract fun getVertices(): List<Int>
     abstract fun getNeighbors(x: Int): List<Int>
     abstract fun addVertex(x: Int)
     abstract fun removeVertex(x: Int): Boolean
@@ -18,6 +19,16 @@ abstract class BidirectionalGraph {
     protected fun errorVertexDoesNotExist(x: Int): Nothing = throw RuntimeException("Vertex $x does not exist")
     protected fun errorEdgeExists(x: Int, y: Int): Nothing = throw RuntimeException("Edge $x->$y already exists")
     protected fun errorEdgeDoesNotExist(x: Int, y: Int): Nothing = throw RuntimeException("Edge $x->$y does not exist")
+
+    override fun toString(): String {
+        val result = StringBuilder()
+        val vertices = getVertices()
+        for (i in 0..(vertices.size-1)) {
+            result.append("$i\n")
+            getNeighbors(i).forEach { result.append(" ---${getEdge(i, it)}--->$it\n") }
+        }
+        return result.toString()
+    }
 }
 
 class InfiniteList<T>: ArrayList<T?>() {
@@ -41,9 +52,9 @@ class InfiniteList<T>: ArrayList<T?>() {
  *
  * Time complexity:
  *
- * hasVertex: O(V)
+ * hasVertex: O(1)
  * getEdge: O(V)
- * getNeighbors: O(V)
+ * getNeighbors: O(1)
  * addVertex: O(1)
  * removeVertex: O(E)
  * addEdge: O(1)
@@ -59,6 +70,12 @@ class AdjacencyListBidirectionalGraph: BidirectionalGraph() {
 
     override fun getEdge(x: Int, y: Int): Double? =
         (adjacencyList[x] ?: errorVertexDoesNotExist(x)).find { it.first == y }?.second
+
+    override fun getVertices(): List<Int> {
+        val result = ArrayList<Int>()
+        for (i in 0..(adjacencyList.size-1)) if (adjacencyList[i] !== null) result.add(i)
+        return result
+    }
 
     override fun getNeighbors(x: Int): List<Int> = (adjacencyList[x] ?: errorVertexDoesNotExist(x)).map { it.first }
 
@@ -99,18 +116,6 @@ class AdjacencyListBidirectionalGraph: BidirectionalGraph() {
         return adjacencyList[x]!!.remove(adjacencyList[x]!!.find { it.first == y })
     }
 
-    override fun toString(): String {
-        val result = StringBuilder()
-        for (i in 0..(adjacencyList.size-1)) {
-            val node = adjacencyList[i]
-            if (node !== null) {
-                result.append("$i\n")
-                node.forEach { result.append(" ---${it.second}--->${it.first}\n") }
-            }
-        }
-        return result.toString()
-    }
-
     override fun clear() {
         adjacencyList.clear()
     }
@@ -142,6 +147,12 @@ class AdjacencyMatrixBidirectionalGraph: BidirectionalGraph() {
 
     override fun getEdge(x: Int, y: Int): Double? =
         (adjacencyMatrix[x] ?: errorVertexDoesNotExist(x))[y]
+
+    override fun getVertices(): List<Int> {
+        val result = ArrayList<Int>()
+        for (i in 0..(adjacencyMatrix.size-1)) if (adjacencyMatrix[i] !== null) result.add(i)
+        return result
+    }
 
     override fun getNeighbors(x: Int): List<Int> {
         checkHasVertex(x)
@@ -207,6 +218,15 @@ fun createAdjacencyListGraph(vertexCount: Int, edges: List<Triple<Int, Int, Doub
 
 fun createAdjacencyMatrixGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()): AdjacencyMatrixBidirectionalGraph =
         initGraph(AdjacencyMatrixBidirectionalGraph(), vertexCount, edges)
+
+/**
+ * Creates a graph using an *intelligent* algorithm to determine the most efficient graph possible
+ *
+ * The main disadvantage of the adjacency matrix implementation is its memory complexity (it's better in almost everything else),
+ * but it doesn't really matter if 1) the vertex count is too small or 2) an adjacency list graph would also consume about that much memory.
+ *
+ * Thus if either vertex count is smaller than 500 or the amount of edges is close to V^2, then we use the adjacency matrix graph.
+ * */
 
 fun createGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()): BidirectionalGraph =
         if (vertexCount < 500 || edges.size >= vertexCount * (vertexCount - 100)) createAdjacencyMatrixGraph(vertexCount, edges) else createAdjacencyListGraph(vertexCount, edges)
