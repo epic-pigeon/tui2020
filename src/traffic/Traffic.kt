@@ -4,6 +4,7 @@ import graph.BidirectionalGraph
 import graph.InfiniteList
 import util.EventEmitter
 import java.io.PrintStream
+import kotlin.math.abs
 import kotlin.system.measureNanoTime
 
 private fun Double.format(digits: Int) = "%.${digits}f".format(this)
@@ -25,7 +26,7 @@ data class Car(val averageSpeed: Double, val offroadQuality: Double, val label: 
 
 data class Road(val quality: Double, val name: String?)
 
-class TrafficSimulation(val map: BidirectionalGraph, val trafficLights: InfiniteList<TrafficLight>, val roads: MutableList<Triple<Int, Int, Road>>, val maxTPS: Double = 0.0): EventEmitter<Any?>() {
+class TrafficSimulation(val map: BidirectionalGraph, val trafficLights: InfiniteList<TrafficLight>, val roads: MutableList<Triple<Int, Int, Road>>, val maxTPS: Double = 0.0): EventEmitter<Double>() {
     private val thread = Thread {
         var delay = 0.0
         while (true) {
@@ -97,10 +98,15 @@ class TrafficSimulation(val map: BidirectionalGraph, val trafficLights: Infinite
         }
         cars.removeIf { it.finished }
 
-        trafficLights.forEach { it -> if (it !== null) {
+        trafficLights.forEach { if (it !== null) {
             it.currentRatio = (it.currentRatio + delta / it.totalTime) % 1.0
-            if (it.autoAdjust && it.primaryStats + it.secondaryStats >= 300.0) {
-                it.ratio = it.primaryStats / (it.primaryStats + it.secondaryStats)
+            if (it.autoAdjust && it.primaryStats + it.secondaryStats >= 300.0
+                    && abs((it.primaryStats - it.secondaryStats) / (it.primaryStats + it.secondaryStats)) > 0.1) {
+                if ((it.ratio == 0.0 && it.primaryStats > 0.0) || (it.ratio == 1.0 && it.secondaryStats > 0.0)) {
+                    it.ratio = it.primaryStats / (it.primaryStats + it.secondaryStats)
+                } else {
+                    it.ratio = (it.primaryStats / (1 - it.ratio)) / (it.primaryStats / (1 - it.ratio) + it.secondaryStats / it.ratio)
+                }
                 it.primaryStats = 0.0
                 it.secondaryStats = 0.0
             }
