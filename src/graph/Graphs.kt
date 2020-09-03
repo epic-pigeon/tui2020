@@ -1,6 +1,22 @@
 package graph
 
 import java.lang.RuntimeException
+import kotlin.reflect.jvm.isAccessible
+
+private data class MutablePair<A, B>(
+    var first: A,
+    var second: B
+) {
+    override fun toString(): String = "($first, $second)"
+}
+
+private data class MutableTriple<A, B, C>(
+    var first: A,
+    var second: B,
+    var third: C
+) {
+    override fun toString(): String = "($first, $second, $third)"
+}
 
 abstract class BidirectionalGraph {
     abstract fun hasVertex(x: Int): Boolean
@@ -64,7 +80,7 @@ class InfiniteList<T>: ArrayList<T?>() {
  * */
 
 class AdjacencyListBidirectionalGraph: BidirectionalGraph() {
-    private val adjacencyList: InfiniteList<MutableList<Pair<Int, Double>>> = InfiniteList()
+    private val adjacencyList: InfiniteList<MutableList<MutablePair<Int, Double>>> = InfiniteList()
 
     override fun hasVertex(x: Int): Boolean = adjacencyList[x] !== null
 
@@ -98,15 +114,14 @@ class AdjacencyListBidirectionalGraph: BidirectionalGraph() {
 
         if (getEdge(x, y) !== null) errorEdgeExists(x, y)
 
-        adjacencyList[x]!!.add(Pair(y, weight))
+        adjacencyList[x]!!.add(MutablePair(y, weight))
     }
 
     override fun setEdge(x: Int, y: Int, weight: Double) {
         checkHasVertex(x)
         checkHasVertex(y)
 
-        if (!adjacencyList[x]!!.remove(adjacencyList[x]!!.find { it.first == y })) throw RuntimeException("Edge $x->$y does not exist")
-        adjacencyList[x]!!.add(Pair(y, weight))
+        (adjacencyList[x]!!.find { it.first == y } ?: errorEdgeDoesNotExist(x, y)).second = weight
     }
 
     override fun removeEdge(x: Int, y: Int): Boolean {
@@ -230,3 +245,52 @@ fun createAdjacencyMatrixGraph(vertexCount: Int, edges: List<Triple<Int, Int, Do
 
 fun createGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()): BidirectionalGraph =
         if (vertexCount < 500 || edges.size >= vertexCount * (vertexCount - 100)) createAdjacencyMatrixGraph(vertexCount, edges) else createAdjacencyListGraph(vertexCount, edges)
+
+/**
+ * Finds an optimal path using the Dijkstra algorithm
+ *
+ * Returns (pathLength, path) if a path was found, null otherwise
+ * */
+
+fun minPath(graph: BidirectionalGraph, x: Int, y: Int): Pair<Double, List<Int>>? {
+    if (!graph.hasVertex(x)) throw RuntimeException("The graph doesn't have a vertex $x")
+    if (!graph.hasVertex(y)) throw RuntimeException("The graph doesn't have a vertex $y")
+    if (x == y) return Pair(0.0, ArrayList())
+
+    val vertexData = InfiniteList<MutableTriple<Double?, Boolean, List<Int>?>>()
+
+    graph.getVertices().forEachIndexed { i, it ->
+        vertexData[i] = MutableTriple(if (it == x) 0.0 else null, false, if (it == x) ArrayList() else null) }
+
+    while (true) {
+        var minId: Int? = null
+
+        vertexData.forEachIndexed { i, it ->
+            if (it !== null && !it.second && it.first !== null && (minId === null || it.first!! < vertexData[minId!!]!!.first!!)) {
+                minId = i
+            }
+        }
+
+        if (minId == null) break
+
+        val a = minId!!
+
+        if (a == y) break
+
+        vertexData[a]!!.second = true
+
+        graph.getNeighbors(a).forEach {
+            if (!vertexData[it]!!.second) {
+                val newDistance = vertexData[a]!!.first!! + graph.getEdge(a, it)!!
+                if (vertexData[it]!!.first == null || vertexData[it]!!.first!! > newDistance) {
+                    vertexData[it]!!.first = newDistance
+                    val newRoute = ArrayList<Int>()
+                    newRoute.addAll(vertexData[a]!!.third!!)
+                    newRoute.add(it)
+                    vertexData[it]!!.third = newRoute
+                }
+            }
+        }
+    }
+    return if (vertexData[y]!!.first == null) null else Pair(vertexData[y]!!.first!!, vertexData[y]!!.third!!)
+}
