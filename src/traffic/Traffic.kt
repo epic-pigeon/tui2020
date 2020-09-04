@@ -80,7 +80,7 @@ class TrafficSimulation(val map: DirectionalGraph, val trafficLights: InfiniteLi
             val it = cars[i]
             if (!it.finished) {
                 val progress =
-                    it.roadProgress + delta * it.averageSpeed * getRoad(it.currentRoadFrom, it.currentRoadTo)!!.quality / map.getEdge(it.currentRoadFrom, it.currentRoadTo)!!
+                    it.roadProgress + delta * calculateSpeed(it.averageSpeed, getRoad(it.currentRoadFrom, it.currentRoadTo)!!.quality, it.offroadQuality) / map.getEdge(it.currentRoadFrom, it.currentRoadTo)!!
                 if (progress >= 1) {
                     if (trafficLights[it.currentRoadTo] == null || trafficLights[it.currentRoadTo]!!.isOn(it.currentRoadFrom)) {
                         if (it.route.isEmpty()) {
@@ -120,6 +120,9 @@ class TrafficSimulation(val map: DirectionalGraph, val trafficLights: InfiniteLi
         }}
     }
 
+    private fun calculateSpeed(averageSpeed: Double, roadQuality: Double, offroadQuality: Double): Double =
+            averageSpeed - averageSpeed * (1 - roadQuality) * (1 - offroadQuality)
+
     fun addCar(car: Car) {
         cars.add(car)
     }
@@ -127,7 +130,8 @@ class TrafficSimulation(val map: DirectionalGraph, val trafficLights: InfiniteLi
     fun dumpCars(stream: PrintStream) {
         cars.forEachIndexed { i, it ->
             stream.println("Car #$i ${ if (it.label !== null) "'${it.label}' " else "" }${it.currentRoadFrom}----${(it.roadProgress * 100).toInt()}%--->${it.currentRoadTo} " +
-                    "(speed: average: ${it.averageSpeed.format(2)}, current: ${it.averageSpeed.times(it.offroadQuality).times(getRoad(it.currentRoadFrom, it.currentRoadTo)!!.quality).format(2)})")
+                    "(speed: average: ${it.averageSpeed.format(2)}, " +
+                    "current: ${ if (trafficLights[it.currentRoadTo] !== null && !trafficLights[it.currentRoadTo]!!.isOn(it.currentRoadFrom) && it.roadProgress == 1.0) 0.0.format(2) else calculateSpeed(it.averageSpeed, getRoad(it.currentRoadFrom, it.currentRoadTo)!!.quality, it.offroadQuality).format(2)})")
         }
     }
 
