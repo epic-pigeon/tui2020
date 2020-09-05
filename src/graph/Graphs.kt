@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.lang.RuntimeException
+import kotlin.math.sqrt
 
 private data class MutablePair<A, B>(
     var first: A,
@@ -296,6 +297,66 @@ class AdjacencyMatrixDirectionalGraph: DirectionalGraph() {
     }
 }
 
+private inline fun sqr(x: Double) = x*x
+
+data class Coords(val x: Double, val y: Double, val z: Double) {
+    constructor(x: Double, y: Double): this(x, y, 0.0)
+    operator fun plus(coords: Coords) = Coords(x + coords.x, y + coords.y, z + coords.z)
+    operator fun minus(coords: Coords) = Coords(x - coords.x, y - coords.y, z - coords.z)
+    operator fun unaryMinus() = Coords(-x, -y, -z)
+    operator fun times(value: Double) = Coords(x * value, y * value, z * value)
+    operator fun div(value: Double) = Coords(x / value, y / value, z / value)
+    infix fun to(other: Coords): Double = sqrt(sqr(x - other.x) + sqr(y - other.y) + sqr(z - other.z))
+}
+
+class CoordsDirectionalGraph(val graph: DirectionalGraph): DirectionalGraph() {
+    private val vertexCoords: InfiniteList<Coords> = InfiniteList()
+
+    override fun hasVertex(x: Int): Boolean = graph.hasVertex(x)
+
+    override fun getEdge(x: Int, y: Int): Double? = graph.getEdge(x, y)
+
+    override fun getVertices(): List<Int> = graph.getVertices()
+
+    override fun getNeighbors(x: Int): List<Int> = graph.getNeighbors(x)
+
+    override fun addVertex(x: Int) = graph.addVertex(x)
+
+    override fun removeVertex(x: Int): Boolean {
+        val res = graph.removeVertex(x)
+        vertexCoords[x] = null
+        return res
+    }
+
+    override fun addEdge(x: Int, y: Int, value: Double) = graph.addEdge(x, y, value)
+
+    override fun setEdge(x: Int, y: Int, value: Double) = graph.setEdge(x, y, value)
+
+    override fun removeEdge(x: Int, y: Int): Boolean = graph.removeEdge(x, y)
+
+    override fun clear() {
+        vertexCoords.clear()
+        graph.clear()
+    }
+
+    fun setVertexCoords(x: Int, coords: Coords) {
+        checkHasVertex(x)
+        vertexCoords[x] = coords
+    }
+
+    fun getVertexCoords(x: Int): Coords? {
+        checkHasVertex(x)
+        return vertexCoords[x]
+    }
+
+    fun addVertex(x: Int, coords: Coords) {
+        addVertex(x)
+        setVertexCoords(x, coords)
+    }
+
+    fun addEdge(x: Int, y: Int) = addEdge(x, y, getVertexCoords(x)!! to getVertexCoords(y)!!)
+}
+
 private fun <T: DirectionalGraph>initGraph(graph: T, vertexCount: Int, edges: List<Triple<Int, Int, Double>>): T {
     for (i in 0..(vertexCount-1)) graph.addVertex(i)
 
@@ -312,11 +373,25 @@ private fun <T: DirectionalGraph>initGraph(graph: T, vertices: List<Int>, edges:
     return graph
 }
 
+private fun initCoordsGraph(graph: DirectionalGraph, vertexCoords: List<Coords>, edges: List<Triple<Int, Int, Double?>>): CoordsDirectionalGraph {
+    graph.clear()
+    val result = CoordsDirectionalGraph(graph)
+    for (i in 0 until vertexCoords.size) result.addVertex(i, vertexCoords[i])
+    for (edge in edges) if (edge.third == null) result.addEdge(edge.first, edge.second) else result.addEdge(edge.first, edge.second, edge.third!!)
+    return result
+}
+
 fun createAdjacencyListGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()): AdjacencyListDirectionalGraph =
         initGraph(AdjacencyListDirectionalGraph(), vertexCount, edges)
 
+fun createAdjacencyListCoordsGraph(vertexCoords: List<Coords>, edges: List<Triple<Int, Int, Double?>>): CoordsDirectionalGraph =
+        initCoordsGraph(AdjacencyListDirectionalGraph(), vertexCoords, edges)
+
 fun createAdjacencyMatrixGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()): AdjacencyMatrixDirectionalGraph =
         initGraph(AdjacencyMatrixDirectionalGraph(), vertexCount, edges)
+
+fun createAdjacencyMatrixCoordsGraph(vertexCoords: List<Coords>, edges: List<Triple<Int, Int, Double?>>): CoordsDirectionalGraph =
+    initCoordsGraph(AdjacencyMatrixDirectionalGraph(), vertexCoords, edges)
 
 /**
  * Creates a graph using an *intelligent* algorithm to determine the most efficient graph possible
@@ -327,8 +402,11 @@ fun createAdjacencyMatrixGraph(vertexCount: Int, edges: List<Triple<Int, Int, Do
  * Thus if either vertex count is smaller than 500 or the amount of edges is close to V^2, then we use the adjacency matrix graph.
  * */
 
-fun createGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()): DirectionalGraph =
+fun createGraph(vertexCount: Int, edges: List<Triple<Int, Int, Double>> = ArrayList()) =
         if (vertexCount < 500 || edges.size >= vertexCount * (vertexCount - 100)) createAdjacencyMatrixGraph(vertexCount, edges) else createAdjacencyListGraph(vertexCount, edges)
+
+fun createCoordsGraph(vertexCoords: List<Coords>, edges: List<Triple<Int, Int, Double?>>) =
+        if (vertexCoords.size < 500 || edges.size >= vertexCoords.size * (vertexCoords.size - 100)) createAdjacencyMatrixCoordsGraph(vertexCoords, edges) else createAdjacencyListCoordsGraph(vertexCoords, edges)
 
 /**
  * Finds an optimal path using the Dijkstra algorithm
