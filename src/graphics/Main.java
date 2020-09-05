@@ -1,9 +1,14 @@
 package graphics;
 
+import graph.AdjacencyListDirectionalGraph;
+import kotlin.Pair;
+
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.AffineTransform;
+import java.awt.geom.Line2D;
 import java.awt.geom.Rectangle2D;
+import java.util.ArrayList;
 import javax.swing.*;
 
 @SuppressWarnings("serial")
@@ -22,8 +27,33 @@ public class Main extends JFrame{
 
     private DrawCanvas canvas; // The custom drawing canvas (an innder class extends JPanel)
 
+
+    public AdjacencyListDirectionalGraph graph;
+    public ArrayList<Pair<Integer, Integer>> graphCoords;
+
+    public void initGraph(){
+        graphCoords = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            graph.addVertex(i);
+        }
+        graph.addEdge(0, 1, 10);
+        graph.addEdge(1, 2, 15);
+        graph.addEdge(1, 3, 30);
+        graph.addEdge(1, 4, 10);
+        graph.addEdge(3, 4, 10);
+
+        graphCoords.add(new Pair<>(500, 800));
+        graphCoords.add(new Pair<>(400, 300));
+        graphCoords.add(new Pair<>(700, 200));
+        graphCoords.add(new Pair<>(100, 400));
+        graphCoords.add(new Pair<>(200, 50));
+    }
+
     // Constructor to set up the GUI components and event handlers
     public Main() {
+        graph = new AdjacencyListDirectionalGraph();
+        initGraph();
+
         // Set up a panel for the buttons
         JPanel btnPanel = new JPanel(new FlowLayout());
         JButton btnLeft = new JButton("Move Left ");
@@ -91,8 +121,8 @@ public class Main extends JFrame{
         public void paintComponent(Graphics g) {
             super.paintComponent(g);
             setBackground(Color.getColor("F8F9FA"));
-
-            drawRoad(100, 100, 400, 300, 10, g);
+            //drawRoad(100, 100, 400, 300, 5, g);
+            drawRoadNew(graph, graphCoords, 10, g);
         }
 
         public void drawRoad(int x1, int y1, int x2, int y2, double width, Graphics g){
@@ -124,6 +154,17 @@ public class Main extends JFrame{
             g2.draw(p);
             g2.setColor(Color.white);
             g2.fill(p);
+        }
+
+        public void drawRoadNew(AdjacencyListDirectionalGraph graph, ArrayList<Pair<Integer, Integer>> coords, int width, Graphics g){
+            Graphics2D g2 = (Graphics2D) g;
+            g2.setColor(Color.white);
+            for (int j: graph.getVertices()) {
+                for (int i: graph.getNeighbors(j)) {
+                    g2.setStroke(new BasicStroke(width));
+                    g2.draw(new Line2D.Float(coords.get(i).component1(), coords.get(i).component2(), coords.get(j).component1(), coords.get(j).component2()));
+                }
+            }
         }
     }
 
