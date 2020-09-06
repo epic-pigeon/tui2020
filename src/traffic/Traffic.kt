@@ -3,9 +3,12 @@ package traffic
 import graph.DirectionalGraph
 import graph.InfiniteList
 import util.EventEmitter
+import util.forEachConcurrentSafe
+import util.forEachIndexedConcurrentSafe
 import java.io.PrintStream
 import java.util.*
 import kotlin.math.abs
+import kotlin.math.min
 import kotlin.system.measureNanoTime
 
 private fun Double.format(digits: Int) = "%.${digits}f".format(this)
@@ -16,18 +19,24 @@ data class TrafficLight(var ratio: Double, val totalTime: Double, val primaryDir
     fun isOn(vertex: Int) = (ratio > currentRatio) == (vertex in primaryDirections)
 }
 
-data class Car(val averageSpeed: Double, val offroadQuality: Double, val label: String?,
-               var currentRoadFrom: Int, var currentRoadTo: Int, var route: MutableList<Int>,
-               var roadProgress: Double = 0.0, var finished: Boolean = false) {
-    constructor(averageSpeed: Double, offroadQuality: Double, route: MutableList<Int>, label: String? = null) : this(averageSpeed, offroadQuality, label, route[0], route[1], route) {
-        route.removeAt(0)
-        route.removeAt(0)
-    }
+data class Car(val averageSpeed: Double, val offroadQuality: Double, val label: String?, val route: MutableList<Int>)
+
+data class SimulatedCar(val averageSpeed: Double, val offroadQuality: Double, val label: String?,
+                        var currentRoadFrom: Int, var currentRoadTo: Int, var route: MutableList<Int>,
+                        var roadProgress: Double = 0.0, var finished: Boolean = false, var currentLane: Int = 0,
+                        var totalDistance: Double = 0.0, var totalTime: Double = 0.0, var standingReason: Int? = null, var currentSpeed: Double = 0.0) {
+    constructor(car: Car): this(car.averageSpeed, car.offroadQuality, car.label, car.route[0], car.route[1], car.route.filterIndexed {i, _ -> i >= 2}.toMutableList())
 }
 
-data class Road(val quality: Double, val name: String?)
+data class Road(val quality: Double, val laneCount: Int, val name: String?)
 
-class TrafficSimulation(val map: DirectionalGraph, val trafficLights: InfiniteList<TrafficLight>, val roads: MutableList<Triple<Int, Int, Road>>, val maxTPS: Double = 0.0): EventEmitter<Double>() {
+data class SimulatedRoad(val quality: Double, val laneCount: Int, val name: String?) {
+    constructor(road: Road): this(road.quality, road.laneCount, road.name)
+}
+
+private fun roadProgressComparator() = kotlin.Comparator<SimulatedCar> { o1, o2 -> if (o1.roadProgress < o2.roadProgress) -1 else if (o1.roadProgress == o2.roadProgress) 0 else 1 }
+
+class TrafficSimulation(val map: DirectionalGraph, val trafficLights: InfiniteList<TrafficLight>, roadParams: List<Triple<Int, Int, Road>>, val maxTPS: Double = 0.0): EventEmitter<Double>() {
     private val thread = Thread {
         var delay = 0.0
         while (true) {
@@ -43,16 +52,18 @@ class TrafficSimulation(val map: DirectionalGraph, val trafficLights: InfiniteLi
         }
     }
 
+    val roads: MutableList<Triple<Int, Int, SimulatedRoad>> = roadParams.map { Triple(it.first, it.second, SimulatedRoad(it.third)) }.toMutableList()
+
     var trafficLightTime: Double = 60.0
 
-    fun getRoad(x: Int, y: Int): Road? = roads.find { it.first == x && it.second == y }?.third
+    fun getRoad(x: Int, y: Int): SimulatedRoad? = roads.find { it.first == x && it.second == y }?.third
 
     fun start() {
-        map.getVertices().forEach { vertex ->
+        map.getVertices().forEachConcurrentSafe { vertex ->
             val neighbors = map.getNeighbors(vertex)
-            neighbors.forEach {
+            neighbors.forEachConcurrentSafe {
                 if (getRoad(vertex, it) == null) {
-                    roads.add(Triple(vertex, it, Road(1.0, null)))
+                    roads.add(Triple(vertex, it, SimulatedRoad(Road(1.0, 1, null))))
                 }
             }
             if (neighbors.size >= 3 && trafficLights[vertex] == null)
@@ -65,9 +76,26 @@ class TrafficSimulation(val map: DirectionalGraph, val trafficLights: InfiniteLi
         thread.stop()
     }
 
-    val cars: MutableList<Car> = Collections.synchronizedList(ArrayList())
+    val cars: MutableList<SimulatedCar> = Collections.synchronizedList(ArrayList())
     var cycle: Int = 0
         private set
+
+    private fun getMaxProgress(carsOnLane: List<SimulatedCar>, roadProgress: Double, roadLength: Double): Double? {
+        val car = carsOnLane.sortedWith(roadProgressComparator()).reversed().find { (it.roadProgress * roadLength - 5) / roadLength >= roadProgress } ?: return null
+        return (car.roadProgress * roadLength - 5) / roadLength
+    }
+
+    private fun occupiesProgress(progress: Double, carProgress: Double, roadLength: Double) =
+        progress < carProgress && progress > (carProgress * roadLength - 5) / roadLength
+
+    private fun canFitIntoLane(carsOnLane: List<SimulatedCar>, progress: Double, roadLength: Double) =
+        carsOnLane.find {
+            occupiesProgress(progress, it.roadProgress, roadLength) ||
+            occupiesProgress((progress * roadLength - 5) / roadLength, it.roadProgress, roadLength)
+        } == null
+
+    private fun getCarsOnLane(x: Int, y: Int, lane: Int) = cars.filter { it.currentRoadFrom == x && it.currentRoadTo == y && it.currentLane == lane }
+    private fun getCarsOnLaneSorted(x: Int, y: Int, lane: Int) = getCarsOnLane(x, y, lane).sortedWith(roadProgressComparator())
 
     private fun update(delta: Double) {
         emit("update", delta)
@@ -77,35 +105,89 @@ class TrafficSimulation(val map: DirectionalGraph, val trafficLights: InfiniteLi
                 System.err.println("Warning: concurrent modification detected")
                 break
             }
-            val it = cars[i]
-            if (!it.finished) {
-                val progress =
-                    it.roadProgress + delta * calculateSpeed(it.averageSpeed, getRoad(it.currentRoadFrom, it.currentRoadTo)!!.quality, it.offroadQuality) / map.getEdge(it.currentRoadFrom, it.currentRoadTo)!!
-                if (progress >= 1) {
-                    if (trafficLights[it.currentRoadTo] == null || trafficLights[it.currentRoadTo]!!.isOn(it.currentRoadFrom)) {
-                        if (it.route.isEmpty()) {
-                            it.finished = true
-                        } else {
-                            it.currentRoadFrom = it.currentRoadTo
-                            it.currentRoadTo = it.route[0]
-                            it.route.removeAt(0)
-                            it.roadProgress = 0.0
-                        }
+            val car = cars[i]
+            if (!car.finished) {
+                val _progress = car.roadProgress
+                val roadLength = map.getEdge(car.currentRoadFrom, car.currentRoadTo)!!
+                val road = getRoad(car.currentRoadFrom, car.currentRoadTo)!!
+                var progress =
+                    car.roadProgress + delta * calculateSpeed(car.averageSpeed, road.quality, car.offroadQuality) / roadLength
+                val carsOnLane = getCarsOnLaneSorted(car.currentRoadFrom, car.currentRoadTo, car.currentLane)
+
+                if (carsOnLane.size > carsOnLane.indexOf(car) + 1) {
+                    val maxProgress: Double = (carsOnLane[carsOnLane.indexOf(car)+1].roadProgress * roadLength - 5) / roadLength
+                    if (maxProgress < progress) {
+                        if (road.laneCount > 1) {
+                            val lanes = listOf(car.currentLane - 1, car.currentLane, car.currentLane + 1)
+                                .filter { it >= 0 && it < road.laneCount }
+                                .filter { canFitIntoLane(getCarsOnLane(car.currentRoadFrom, car.currentRoadTo, it).filter { theCar -> theCar !== car }, car.roadProgress, roadLength) }
+                                .sortedWith(Comparator.comparingDouble{ getMaxProgress(getCarsOnLane(car.currentRoadFrom, car.currentRoadTo, it).filter { theCar -> theCar !== car }, car.roadProgress, roadLength) ?: Double.POSITIVE_INFINITY })
+
+                            if (lanes.isNotEmpty()) {
+                                val newMax = getMaxProgress(getCarsOnLane(car.currentRoadFrom, car.currentRoadTo, lanes.last())
+                                    .filter { theCar -> theCar !== car }, car.roadProgress, roadLength)
+                                if (newMax != null) progress = min(progress, newMax)
+                                car.currentLane = lanes.last()
+                            } else {
+                                progress = car.roadProgress
+                            }
+                        } else progress = maxProgress
+                    }
+
+                    if (progress - _progress == 0.0) {
+                        car.standingReason = carsOnLane[carsOnLane.indexOf(car)+1].standingReason
                     } else {
-                        it.roadProgress = 1.0
-                        if (it.currentRoadFrom in trafficLights[it.currentRoadTo]!!.primaryDirections) {
-                            trafficLights[it.currentRoadTo]!!.primaryStats += delta
+                        car.standingReason = null
+                    }
+                }
+
+                val transferToNextRoad = {
+                    if (car.route.isEmpty()) {
+                        car.finished = true
+                    } else {
+                        var maxProgress: Double = -1.0
+                        for (i in 0 until road.laneCount) {
+                            val newMax =
+                                getMaxProgress(getCarsOnLane(car.currentRoadTo, car.route[0], i), 0.0, roadLength)
+                            if (newMax == null) maxProgress = Double.POSITIVE_INFINITY else if (newMax > maxProgress) maxProgress = newMax
+                        }
+                        if (maxProgress >= 5.0 / map.getEdge(car.currentRoadTo, car.route[0])!!) {
+                            car.currentRoadFrom = car.currentRoadTo
+                            car.currentRoadTo = car.route[0]
+                            car.route.removeAt(0)
+                            car.roadProgress = 0.0
+                            car.standingReason = null
                         } else {
-                            trafficLights[it.currentRoadTo]!!.secondaryStats += delta
+                            car.standingReason =
+                                    getCarsOnLaneSorted(car.currentRoadTo, car.route[0], 0).first().standingReason
                         }
                     }
-                } else it.roadProgress = progress
+                }
+
+                if (progress >= 1) {
+                    if (trafficLights[car.currentRoadTo] == null || trafficLights[car.currentRoadTo]!!.isOn(car.currentRoadFrom)) {
+                        transferToNextRoad()
+                    } else {
+                        car.roadProgress = 1.0
+                        car.standingReason = car.currentRoadTo
+                        if (car.currentRoadFrom in trafficLights[car.currentRoadTo]!!.primaryDirections) {
+                            trafficLights[car.currentRoadTo]!!.primaryStats += delta
+                        } else {
+                            trafficLights[car.currentRoadTo]!!.secondaryStats += delta
+                        }
+                    }
+                } else car.roadProgress = progress
+
+                val distanceTravelled = if (_progress < car.roadProgress) (car.roadProgress - _progress) * roadLength else 0.0
+                car.totalDistance += distanceTravelled
+                car.currentSpeed = distanceTravelled / delta
+                car.totalTime += delta
             }
         }
 
         cars.removeIf { it.finished }
 
-        trafficLights.forEach { if (it !== null) {
+        trafficLights.forEachConcurrentSafe { if (it !== null) {
             it.currentRatio = (it.currentRatio + delta / it.totalTime) % 1.0
             if (it.autoAdjust && it.primaryStats + it.secondaryStats >= 300.0
                     && abs((it.primaryStats - it.secondaryStats) / (it.primaryStats + it.secondaryStats)) > 0.1) {
@@ -124,19 +206,19 @@ class TrafficSimulation(val map: DirectionalGraph, val trafficLights: InfiniteLi
             averageSpeed - averageSpeed * (1 - roadQuality) * (1 - offroadQuality)
 
     fun addCar(car: Car) {
-        cars.add(car)
+        cars.add(SimulatedCar(car))
     }
 
     fun dumpCars(stream: PrintStream) {
-        cars.forEachIndexed { i, it ->
-            stream.println("Car #$i ${ if (it.label !== null) "'${it.label}' " else "" }${it.currentRoadFrom}----${(it.roadProgress * 100).toInt()}%--->${it.currentRoadTo} " +
+        cars.forEachIndexedConcurrentSafe { i, it ->
+            stream.println("Car #$i ${ if (it.label !== null) "'${it.label}' " else "" } on ${it.currentLane + 1} ${it.currentRoadFrom}----${(it.roadProgress * 100).toInt()}%--->${it.currentRoadTo} " +
                     "(speed: average: ${it.averageSpeed.format(2)}, " +
-                    "current: ${ if (trafficLights[it.currentRoadTo] !== null && !trafficLights[it.currentRoadTo]!!.isOn(it.currentRoadFrom) && it.roadProgress == 1.0) 0.0.format(2) else calculateSpeed(it.averageSpeed, getRoad(it.currentRoadFrom, it.currentRoadTo)!!.quality, it.offroadQuality).format(2)})")
+                    "current: ${it.currentSpeed.format(2)}${if (it.standingReason != null) " (standing reason: #${it.standingReason})" else ""})")
         }
     }
 
     fun dumpTrafficLights(stream: PrintStream) {
-        trafficLights.forEachIndexed { i, it -> if (it !== null) {
+        trafficLights.forEachIndexedConcurrentSafe { i, it -> if (it !== null) {
             stream.println("Traffic light #$i ${ if(it.isOn()) "ON " else "OFF" } ${it.primaryDirections} ${(it.currentRatio*100).toInt()}%/${(it.ratio*100).toInt()}% (stats: ${it.primaryStats.format(2)}/${it.secondaryStats.format(2)})")
         }}
     }
