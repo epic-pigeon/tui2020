@@ -2,10 +2,12 @@ package traffic
 
 import graph.DirectionalGraph
 import graph.InfiniteList
+import graph.minPath
 import util.EventEmitter
 import util.forEachConcurrentSafe
 import util.forEachIndexedConcurrentSafe
 import java.io.PrintStream
+import java.lang.RuntimeException
 import java.util.*
 import kotlin.math.abs
 import kotlin.math.min
@@ -144,6 +146,8 @@ class TrafficSimulation(val map: DirectionalGraph, val trafficLights: InfiniteLi
                 val transferToNextRoad = {
                     if (car.route.isEmpty()) {
                         car.finished = true
+                    } else if (map.getEdge(car.currentRoadTo, car.route[0]) == null) {
+                        throw RuntimeException("Car's route includes a road ${car.currentRoadTo}->${car.route[0]}, which does not exist")
                     } else {
                         var maxProgress: Double = -1.0
                         for (i in 0 until road.laneCount) {
@@ -207,6 +211,13 @@ class TrafficSimulation(val map: DirectionalGraph, val trafficLights: InfiniteLi
 
     fun addCar(car: Car) {
         cars.add(SimulatedCar(car))
+    }
+
+    fun navigateCar(car: Car, from: Int, to: Int): Double? {
+        val result = minPath(map, from, to) { x, y -> map.getEdge(x, y)!! * getRoad(x, y)!!.quality * car.offroadQuality } ?: return null
+        if (result.second.isEmpty()) return 0.0
+        cars.add(SimulatedCar(car.averageSpeed, car.offroadQuality, car.label, from, result.second[0], ArrayList(result.second.subList(1, result.second.size))))
+        return result.first
     }
 
     fun dumpCars(stream: PrintStream) {
